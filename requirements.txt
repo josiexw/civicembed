@@ -1,0 +1,17 @@
+pandas
+requests
+urllib3
+tqdm
+ipykernel
+notebook
+torch
+torchvision
+langdetect
+pyarrow
+spacy
+rasterio
+s2sphere
+geopy
+matplotlib
+numpy
+scikit-learn

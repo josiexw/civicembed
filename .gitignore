@@ -1,0 +1,19 @@
+# OS-generated
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.log
+*.tmp
+
+# Conda & Virtual Envs
+env/
+venv/
+*.env
+
+data/geographic_data
+data/tif_files/
+models/
+src/tif/
