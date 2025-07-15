@@ -1,4 +1,4 @@
-# src/dataloader/water_embeddings.py
+# src/dataloader/vege_embeddings.py
 
 import os
 import sys
@@ -13,11 +13,11 @@ sys.path.append(os.path.abspath("src"))
 from embedding.water_encoder import WaterEncoder
 
 # === Config ===
-DEM_PATH = "./data/tif_files/water/switzerland_water_proximity_km.tif"
+DEM_PATH = "./data/tif_files/vegetation/switzerland_vegetation_cover.tif"
 LOCATION_PARQUET = "./data/geographic_data/terrain_embeddings.parquet"
-MODEL_PATH = "./models/water_encoder.pt"
-OUTPUT_PARQUET = "./data/geographic_data/water_embeddings.parquet"
-PATCH_DIR = "./data/geographic_data/water_patches"
+MODEL_PATH = "./models/vegetation_encoder.pt"
+OUTPUT_PARQUET = "./data/geographic_data/vegetation_embeddings.parquet"
+PATCH_DIR = "./data/geographic_data/vegetation_patches"
 PATCH_SIZE = 64
 LEVEL = 16
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -77,8 +77,8 @@ for _, row in tqdm(loc_df.iterrows(), total=len(loc_df)):
         "id": db_id,
         "lat": lat,
         "lon": lon,
-        "water_patch_id": patch_id,
-        "water_embedding": embedding
+        "vegetation_patch_id": patch_id,
+        "vegetation_embedding": embedding
     })
 
 df = pd.DataFrame(records)

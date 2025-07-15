@@ -4,9 +4,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 import rasterio
-from scipy.ndimage import zoom
 from s2sphere import CellId, LatLng, Cell
 
+# === Config ===
 TIF = "./data/tif_files/vegetation/switzerland_vegetation_cover.tif"
 PATCH_SIZE = 64
 LEVEL = 16
@@ -14,50 +14,66 @@ BATCH_SIZE = 32
 EPOCHS = 50
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# === Vegetation Patch Dataset ===
 class VegetationPatchDataset(Dataset):
     def __init__(self, tif_path, level=LEVEL):
         self.src = rasterio.open(tif_path)
-        self.veg_map = self.src.read(1).astype(np.float32)
-        self.veg_map = np.nan_to_num(self.veg_map, nan=0.0)
         self.level = level
-        self.cells = self._generate_cells()
+        self.cells, self.mean_veg = self._generate_cells()
 
+        # Create bins based on mean vegetation
+        self.low_bin = np.where((self.mean_veg >= 0) & (self.mean_veg < 5))[0]
+        self.mid_bin = np.where((self.mean_veg >= 5) & (self.mean_veg <= 40))[0]
+        self.high_bin = np.where(self.mean_veg > 40)[0]
+        
     def _generate_cells(self):
-        lat_min, lat_max = 45.82, 47.81
-        lon_min, lon_max = 5.96, 10.49
-        lat = np.linspace(lat_min, lat_max, 300)
-        lon = np.linspace(lon_min, lon_max, 300)
-        cells = []
+        left, bottom, right, top = self.src.bounds
+        lat = np.linspace(bottom, top, 300)
+        lon = np.linspace(left, right, 300)
+        cells, means = [], []
+
         for la in lat:
             for lo in lon:
                 cid = CellId.from_lat_lng(LatLng.from_degrees(la, lo)).parent(self.level).id()
-                cells.append((cid, (la, lo)))
-        return cells
+                bounds = self._bounds(cid)
+                patch = self._read_patch(bounds)
+                if patch is not None:
+                    cells.append((cid, (la, lo)))
+                    means.append(patch.mean())
+        return cells, np.array(means)
 
     def _bounds(self, cid):
         cell = Cell(CellId(cid))
-        lats, lons = [], []
-        for i in range(4):
-            v = cell.get_vertex(i)
-            p = LatLng.from_point(v)
-            lats.append(p.lat().degrees)
-            lons.append(p.lng().degrees)
-        return min(lons), min(lats), max(lons), max(lats)
+        lat, lon = zip(*[(LatLng.from_point(cell.get_vertex(i)).lat().degrees,
+                          LatLng.from_point(cell.get_vertex(i)).lng().degrees)
+                         for i in range(4)])
+        return min(lon), min(lat), max(lon), max(lat)
 
-    def _extract(self, bounds):
+    def _read_patch(self, bounds):
         try:
-            window = rasterio.windows.from_bounds(*bounds, transform=self.src.transform)
-            row_off, col_off = int(window.row_off), int(window.col_off)
-            height, width = int(window.height), int(window.width)
+            win = rasterio.windows.from_bounds(*bounds, transform=self.src.transform)
+            win = win.round_offsets().round_lengths()
 
-            patch = self.veg_map[row_off:row_off+height, col_off:col_off+width]
-            if patch.size == 0 or patch.shape[0] < 2 or patch.shape[1] < 2:
+            if (win.col_off >= self.src.width or win.row_off >= self.src.height or
+                win.col_off + win.width <= 0 or win.row_off + win.height <= 0):
+                # print("Out of bounds")
                 return None
 
-            zoom_factors = (PATCH_SIZE / patch.shape[0], PATCH_SIZE / patch.shape[1])
-            patch = zoom(patch, zoom_factors, order=1)
+            # Clip to raster
+            win = win.intersection(rasterio.windows.Window(0, 0, self.src.width, self.src.height))
+            if win.width < 2 or win.height < 2:
+                return None
+
+            patch = self.src.read(
+                1,
+                window=win,
+                out_shape=(PATCH_SIZE, PATCH_SIZE),
+                resampling=rasterio.enums.Resampling.bilinear,
+            )
+            if patch.shape != (PATCH_SIZE, PATCH_SIZE) or np.isnan(patch).any():
+                return None
             return patch
-        except:
+        except Exception:
             return None
 
     def __len__(self):
@@ -65,28 +81,22 @@ class VegetationPatchDataset(Dataset):
 
     def __getitem__(self, idx):
         cid, _ = self.cells[idx]
-        patch = None
-        while patch is None:
-            bounds = self._bounds(cid)
-            patch = self._extract(bounds)
-            if patch is None:
-                idx = (idx + 1) % len(self)
-                cid, _ = self.cells[idx]
+        patch = self._read_patch(self._bounds(cid))
         mean_veg = patch.mean()
         patch = torch.tensor(patch, dtype=torch.float32).unsqueeze(0) / 1000.0
         return patch, torch.tensor(mean_veg, dtype=torch.float32)
 
 def triplet_sampler(dataset):
-    while True:
-        a_idx = np.random.randint(len(dataset))
-        p_idx = (a_idx + np.random.randint(1, 10)) % len(dataset)
-        n_idx = np.random.randint(len(dataset))
-        a_patch, a_v = dataset[a_idx]
-        p_patch, p_v = dataset[p_idx]
-        n_patch, n_v = dataset[n_idx]
-        if abs(a_v - p_v) < 50 and abs(a_v - n_v) > 150:
-            return (a_patch, p_patch, n_patch, a_v, p_v, n_v)
+    anchor_idx = np.random.choice(dataset.mid_bin)
+    pos_idx = np.random.choice(dataset.mid_bin)
+    neg_idx = np.random.choice(dataset.low_bin if np.random.rand() < 0.5 else dataset.high_bin)
 
+    a_patch, a_val = dataset[anchor_idx]
+    p_patch, p_val = dataset[pos_idx]
+    n_patch, n_val = dataset[neg_idx]
+    return a_patch, p_patch, n_patch, a_val, p_val, n_val
+
+# === Vegetation Encoder ===
 class VegetationEncoder(nn.Module):
     def __init__(self, dim=128):
         super().__init__()
@@ -113,38 +123,36 @@ def info_nce(anchor, positive, negative, temperature=0.07):
     neg_sim = torch.exp(torch.sum(anchor * negative, dim=-1) / temperature)
     return -torch.log(pos_sim / (pos_sim + neg_sim)).mean()
 
+# === Training ===
 if __name__ == "__main__":
-    dataset = VegetationPatchDataset(TIF)
+    ds = VegetationPatchDataset(TIF)
     model = VegetationEncoder().to(DEVICE)
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
-    
+    lam = 1.0
+    steps = len(ds) // BATCH_SIZE
+
     for epoch in range(EPOCHS):
-        model.train()
-        total = 0
-        for _ in range(len(dataset) // BATCH_SIZE):
-            a, p, n, av, pv, nv = zip(*[triplet_sampler(dataset) for _ in range(BATCH_SIZE)])
-            a = torch.stack(a).to(DEVICE)
-            p = torch.stack(p).to(DEVICE)
-            n = torch.stack(n).to(DEVICE)
-            av = torch.tensor(av, device=DEVICE)
-            pv = torch.tensor(pv, device=DEVICE)
-            nv = torch.tensor(nv, device=DEVICE)
+        total_loss = total_p = total_n = 0.0
+        for _ in range(steps):
+            batch = [triplet_sampler(ds) for _ in range(BATCH_SIZE)]
+            a, p, n, ad, pd, nd = map(torch.stack, zip(*batch))
+            a, p, n, ad, pd, nd = [t.to(DEVICE) for t in (a, p, n, ad, pd, nd)]
 
-            ea, ra = model(a)
-            ep, rp = model(p)
-            en, rn = model(n)
+            e_a, d_a = model(a)
+            e_p, d_p = model(p)
+            e_n, d_n = model(n)
 
-            loss_con = info_nce(ea, ep, en)
-            loss_reg = F.mse_loss(ra, av) + F.mse_loss(rp, pv) + F.mse_loss(rn, nv)
-            loss = loss_con + loss_reg
+            loss = info_nce(e_a, e_p, e_n) + lam * (
+                F.mse_loss(d_a, ad) + F.mse_loss(d_p, pd) + F.mse_loss(d_n, nd))
 
             opt.zero_grad()
             loss.backward()
             opt.step()
-            total += loss.item()
 
-        pos_sim = F.cosine_similarity(ea, ep, dim=-1).mean().item()
-        neg_sim = F.cosine_similarity(ea, en, dim=-1).mean().item()
-        print(f"Epoch {epoch+1}: Loss={total / (len(dataset) // BATCH_SIZE):.4f} | PosSim={pos_sim:.3f} | NegSim={neg_sim:.3f}")
+            total_loss += loss.item()
+            total_p += F.cosine_similarity(e_a, e_p, dim=-1).mean().item()
+            total_n += F.cosine_similarity(e_a, e_n, dim=-1).mean().item()
+
+        print(f"Epoch {epoch+1:02d} | Loss={total_loss/steps:.4f} | PosSim={total_p/steps:.3f} | NegSim={total_n/steps:.3f}")
 
     torch.save(model.state_dict(), "./models/vegetation_encoder.pt")

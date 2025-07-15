@@ -9,7 +9,7 @@ from s2sphere import CellId, LatLng, Cell
 # === Config ===
 TIF = "./data/tif_files/water/switzerland_water_proximity_km.tif"
 PATCH_SIZE = 64
-LEVEL = 12
+LEVEL = 16
 BATCH_SIZE = 32
 EPOCHS = 50
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -46,7 +46,7 @@ class WaterPatchDataset(Dataset):
 
             if (win.col_off >= self.src.width or win.row_off >= self.src.height or
                 win.col_off + win.width <= 0 or win.row_off + win.height <= 0):
-                print("Out of bounds")
+                # print("Out of bounds")
                 return None
 
             # Clip to raster
@@ -80,9 +80,9 @@ class WaterPatchDataset(Dataset):
 
         # Build bins only from valid indices
         valid = ~np.isnan(mean_km)
-        near = np.where((mean_km < 0.2) & valid)[0]
-        mid  = np.where((mean_km >= 0.2) & (mean_km < 1.0) & valid)[0]
-        far  = np.where((mean_km >= 1.0) & valid)[0]
+        near = np.where((mean_km < 3.0) & valid)[0]
+        mid  = np.where((mean_km >= 3.0) & (mean_km < 10.0) & valid)[0]
+        far  = np.where((mean_km >= 10.0) & valid)[0]
         bins = dict(near=near, mid=mid, far=far)
         return mean_km, bins
 
@@ -99,7 +99,7 @@ class WaterPatchDataset(Dataset):
 
 def triplet_sampler(dataset: WaterPatchDataset):
     anchor_bin = np.random.choice(["near", "mid"])
-    neg_bin    = "far" if anchor_bin == "near" else "near"
+    neg_bin = "far" if anchor_bin == "near" else "near"
 
     a_idx = int(np.random.choice(dataset.bins[anchor_bin]))
     p_idx = int(np.random.choice(dataset.bins[anchor_bin]))
@@ -140,7 +140,7 @@ def info_nce(anchor, positive, negative, temperature=0.07):
 if __name__ == "__main__":
     ds = WaterPatchDataset(TIF)
     model = WaterEncoder().to(DEVICE)
-    opt = torch.optim.Adam(model.parameters(), 1e-3)
+    opt = torch.optim.Adam(model.parameters(), lr=1e-3)
     lam = 1.0
     steps = len(ds) // BATCH_SIZE
 

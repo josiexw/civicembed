@@ -16,4 +16,3 @@ venv/
 data/geographic_data
 data/tif_files/
 models/
-src/tif/
