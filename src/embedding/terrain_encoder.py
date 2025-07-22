@@ -119,7 +119,7 @@ class TerrainPatchDataset(Dataset):
         else:
             return self.__getitem__((idx + 3) % len(self))
 
-        # Sample negative patch: cosine similarity < 0.2 and outside of 5km radius
+        # Sample negative patch: cosine similarity < 0.2 and outside of 10km radius
         while True:
             neg_idx = np.random.randint(len(self))
             neg_id, (neg_lat, neg_lon) = self.cells[neg_idx]
