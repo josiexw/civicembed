@@ -11,8 +11,8 @@ from rasterio.transform import Affine
 from s2sphere import CellId, LatLng, Cell
 
 # === Config ===
-DEM_PATH = "./data/tif_files/terrain/switzerland_dem.tif"
-OUTPUT_MODEL = "./models/terrain_encoder.pt"
+DEM_PATH = "./data/tif_files/terrain/switzerland_dem_padded.tif"
+OUTPUT_MODEL = "/mnt/ldm1/scratch/terrain_encoder.pt"
 PATCH_SIZE = 64
 LEVEL = 16
 BATCH_SIZE = 32
@@ -168,31 +168,36 @@ def info_nce(anchor, positive, negative, temperature=0.07):
 
 # === Training ===
 if __name__ == "__main__":
+    log_path = "/mnt/ldm1/scratch/terrain_encoder_logs.txt"
     dataset = TerrainPatchDataset(DEM_PATH)
     loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
 
     model = TerrainEncoder().to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
-    for epoch in range(EPOCHS):
-        model.train()
-        total_loss = 0
-        for anchor, pos, neg in loader:
-            anchor, pos, neg = anchor.to(DEVICE), pos.to(DEVICE), neg.to(DEVICE)
-            emb_anchor = model(anchor)
-            emb_pos = model(pos)
-            emb_neg = model(neg)
+    with open(log_path, "w") as log_file:
+        for epoch in range(EPOCHS):
+            model.train()
+            total_loss = 0
+            for anchor, pos, neg in loader:
+                anchor, pos, neg = anchor.to(DEVICE), pos.to(DEVICE), neg.to(DEVICE)
+                emb_anchor = model(anchor)
+                emb_pos = model(pos)
+                emb_neg = model(neg)
 
-            loss = info_nce(emb_anchor, emb_pos, emb_neg)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
+                loss = info_nce(emb_anchor, emb_pos, emb_neg)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
 
-        avg_loss = total_loss / len(loader)
-        with torch.no_grad():
-            pos_sim_val = F.cosine_similarity(emb_anchor, emb_pos).mean().item()
-            neg_sim_val = F.cosine_similarity(emb_anchor, emb_neg).mean().item()
-        print(f"Epoch {epoch+1} - Loss: {avg_loss:.4f} | PosSim: {pos_sim_val:.3f} | NegSim: {neg_sim_val:.3f}")
+            avg_loss = total_loss / len(loader)
+            with torch.no_grad():
+                pos_sim_val = F.cosine_similarity(emb_anchor, emb_pos).mean().item()
+                neg_sim_val = F.cosine_similarity(emb_anchor, emb_neg).mean().item()
+            log_line = (f"Epoch {epoch+1} - Loss: {avg_loss:.4f} | PosSim: {pos_sim_val:.3f} | NegSim: {neg_sim_val:.3f}")
+            print(log_line.strip())
+            log_file.write(log_line)
+            log_file.flush()
 
     torch.save(model.state_dict(), OUTPUT_MODEL)

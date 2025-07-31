@@ -126,34 +126,39 @@ def info_nce(anchor, positive, negative, temperature=0.07):
 
 # === Training ===
 if __name__ == "__main__":
+    log_path = "/mnt/ldm1/scratch/vegetation_encoder_logs.txt"
     ds = VegetationPatchDataset(TIF)
     model = VegetationEncoder().to(DEVICE)
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
     lam = 1.0
     steps = len(ds) // BATCH_SIZE
 
-    for epoch in range(EPOCHS):
-        total_loss = total_p = total_n = 0.0
-        for _ in range(steps):
-            batch = [triplet_sampler(ds) for _ in range(BATCH_SIZE)]
-            a, p, n, ad, pd, nd = map(torch.stack, zip(*batch))
-            a, p, n, ad, pd, nd = [t.to(DEVICE) for t in (a, p, n, ad, pd, nd)]
+    with open(log_path, "w") as log_file:
+        for epoch in range(EPOCHS):
+            total_loss = total_p = total_n = 0.0
+            for _ in range(steps):
+                batch = [triplet_sampler(ds) for _ in range(BATCH_SIZE)]
+                a, p, n, ad, pd, nd = map(torch.stack, zip(*batch))
+                a, p, n, ad, pd, nd = [t.to(DEVICE) for t in (a, p, n, ad, pd, nd)]
 
-            e_a, d_a = model(a)
-            e_p, d_p = model(p)
-            e_n, d_n = model(n)
+                e_a, d_a = model(a)
+                e_p, d_p = model(p)
+                e_n, d_n = model(n)
 
-            loss = info_nce(e_a, e_p, e_n) + lam * (
-                F.mse_loss(d_a, ad) + F.mse_loss(d_p, pd) + F.mse_loss(d_n, nd))
+                loss = info_nce(e_a, e_p, e_n) + lam * (
+                    F.mse_loss(d_a, ad) + F.mse_loss(d_p, pd) + F.mse_loss(d_n, nd))
 
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
+                opt.zero_grad()
+                loss.backward()
+                opt.step()
 
-            total_loss += loss.item()
-            total_p += F.cosine_similarity(e_a, e_p, dim=-1).mean().item()
-            total_n += F.cosine_similarity(e_a, e_n, dim=-1).mean().item()
+                total_loss += loss.item()
+                total_p += F.cosine_similarity(e_a, e_p, dim=-1).mean().item()
+                total_n += F.cosine_similarity(e_a, e_n, dim=-1).mean().item()
 
-        print(f"Epoch {epoch+1:02d} | Loss={total_loss/steps:.4f} | PosSim={total_p/steps:.3f} | NegSim={total_n/steps:.3f}")
+            log_line = (f"Epoch {epoch+1:02d} | Loss={total_loss/steps:.4f} | PosSim={total_p/steps:.3f} | NegSim={total_n/steps:.3f}")
+            print(log_line.strip())
+            log_file.write(log_line)
+            log_file.flush()
 
-    torch.save(model.state_dict(), "./models/vegetation_encoder.pt")
+    torch.save(model.state_dict(), "/mnt/ldm1/scratch/vegetation_encoder.pt")
