@@ -22,9 +22,10 @@ class VegetationPatchDataset(Dataset):
         self.cells, self.mean_veg = self._generate_cells()
 
         # Create bins based on mean vegetation
-        self.low_bin = np.where((self.mean_veg >= 0) & (self.mean_veg < 5))[0]
-        self.mid_bin = np.where((self.mean_veg >= 5) & (self.mean_veg <= 40))[0]
-        self.high_bin = np.where(self.mean_veg > 40)[0]
+        self.low_bin = np.where((self.mean_veg >= 0) & (self.mean_veg < 15))[0]
+        self.mid_bin = np.where((self.mean_veg >= 15) & (self.mean_veg <= 50))[0]
+        self.high_bin = np.where(self.mean_veg > 50)[0]
+        # print(f"Low: {len(self.low_bin)}, Mid: {len(self.mid_bin)}, High: {len(self.high_bin)}")
         
     def _generate_cells(self):
         left, bottom, right, top = self.src.bounds

@@ -16,3 +16,4 @@ matplotlib
 numpy
 scikit-learn
 geopandas
+pytest-shutil
