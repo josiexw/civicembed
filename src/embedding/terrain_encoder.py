@@ -11,8 +11,8 @@ from rasterio.transform import Affine
 from s2sphere import CellId, LatLng, Cell
 
 # === Config ===
-DEM_PATH = "./data/tif_files/terrain/switzerland_dem_padded.tif"
-OUTPUT_MODEL = "/mnt/ldm1/scratch/terrain_encoder.pt"
+DEM_PATH = "./data/tif_files/terrain/switzerland_dem_no_zeros.tif"
+OUTPUT_MODEL = "./models/terrain_encoder.pt"
 PATCH_SIZE = 64
 LEVEL = 16
 BATCH_SIZE = 32
@@ -195,7 +195,10 @@ if __name__ == "__main__":
             with torch.no_grad():
                 pos_sim_val = F.cosine_similarity(emb_anchor, emb_pos).mean().item()
                 neg_sim_val = F.cosine_similarity(emb_anchor, emb_neg).mean().item()
-            log_line = (f"Epoch {epoch+1} - Loss: {avg_loss:.4f} | PosSim: {pos_sim_val:.3f} | NegSim: {neg_sim_val:.3f}")
+                
+            log_line = (
+                f"Epoch {epoch+1} - Loss: {avg_loss:.4f} | PosSim: {pos_sim_val:.3f} | NegSim: {neg_sim_val:.3f}\n"
+            )
             print(log_line.strip())
             log_file.write(log_line)
             log_file.flush()

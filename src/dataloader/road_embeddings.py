@@ -5,19 +5,15 @@ import sys
 import torch
 import numpy as np
 import pandas as pd
-import geopandas as gpd
 import rasterio
 from tqdm import tqdm
-from shapely.geometry import box
-from rasterio.features import rasterize
 from s2sphere import CellId, LatLng, Cell
 
 sys.path.append(os.path.abspath("src"))
 from embedding.road_encoder import RoadEncoder
 
 # === Config ===
-SHP_PATH = "./data/shapefiles/switzerland_roads.shp"
-RASTER_REF = "./data/tif_files/terrain/switzerland_dem.tif"
+DEM_PATH = "./data/tif_files/roads/switzerland_roads.tif"
 LOCATION_PARQUET = "./data/geographic_data/terrain_embeddings.parquet"
 MODEL_PATH = "./models/road_encoder.pt"
 OUTPUT_PARQUET = "./data/geographic_data/road_embeddings.parquet"
@@ -28,9 +24,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 os.makedirs(PATCH_DIR, exist_ok=True)
 
-roads = gpd.read_file(SHP_PATH)
-ref_raster = rasterio.open(RASTER_REF)
-transform = ref_raster.transform
+dem = rasterio.open(DEM_PATH)
 encoder = RoadEncoder()
 encoder.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
 encoder.to(DEVICE)
@@ -48,19 +42,13 @@ def s2_bounds(lat, lon, level=LEVEL):
 
 def extract_patch(lat, lon):
     bounds = s2_bounds(lat, lon)
-    geom = box(*bounds)
-    clipped = roads[roads.intersects(geom)]
-    if clipped.empty:
-        return None
     try:
-        patch = rasterize(
-            ((g, 1) for g in clipped.geometry),
-            out_shape=(PATCH_SIZE, PATCH_SIZE),
-            transform=rasterio.transform.from_bounds(*bounds, PATCH_SIZE, PATCH_SIZE),
-            fill=0,
-            dtype=np.uint8
-        ).astype(np.float32)
-        return patch
+        window = rasterio.windows.from_bounds(*bounds, transform=dem.transform)
+        patch = dem.read(1, window=window, out_shape=(PATCH_SIZE, PATCH_SIZE),
+                         resampling=rasterio.enums.Resampling.bilinear)
+        if patch.shape != (PATCH_SIZE, PATCH_SIZE) or np.isnan(patch).any():
+            return None
+        return patch.astype(np.float32)
     except:
         return None
 

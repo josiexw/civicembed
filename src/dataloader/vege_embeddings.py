@@ -10,7 +10,7 @@ from tqdm import tqdm
 from s2sphere import CellId, LatLng, Cell
 
 sys.path.append(os.path.abspath("src"))
-from embedding.water_encoder import WaterEncoder
+from embedding.vege_encoder import VegetationEncoder
 
 # === Config ===
 DEM_PATH = "./data/tif_files/vegetation/switzerland_vegetation_cover.tif"
@@ -25,7 +25,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 os.makedirs(PATCH_DIR, exist_ok=True)
 
 dem = rasterio.open(DEM_PATH)
-encoder = WaterEncoder()
+encoder = VegetationEncoder()
 encoder.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
 encoder.to(DEVICE)
 encoder.eval()

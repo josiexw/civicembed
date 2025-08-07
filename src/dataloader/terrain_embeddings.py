@@ -1,4 +1,4 @@
-# src/dataloader/terrain_embeddings.py
+# src/dataloader/terrain_embeddings_nominatim.py
 
 import json
 import torch

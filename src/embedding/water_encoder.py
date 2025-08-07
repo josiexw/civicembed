@@ -168,7 +168,7 @@ if __name__ == "__main__":
                 total_p += F.cosine_similarity(e_a, e_p, dim=-1).mean().item()
                 total_n += F.cosine_similarity(e_a, e_n, dim=-1).mean().item()
 
-            log_line = (f"Epoch {epoch+1:02d} | Loss={total_loss/steps:.4f} | PosSim={total_p/steps:.3f} | NegSim={total_n/steps:.3f}")
+            log_line = (f"Epoch {epoch+1:02d} | Loss={total_loss/steps:.4f} | PosSim={total_p/steps:.3f} | NegSim={total_n/steps:.3f}\n")
             print(log_line.strip())
             log_file.write(log_line)
             log_file.flush()
